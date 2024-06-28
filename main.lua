@@ -1,13 +1,19 @@
 local addonName, CFCT = ...
 _G[addonName] = CFCT
-local IsClassic = (WOW_PROJECT_ID == WOW_PROJECT_CLASSIC)
-local IsBCC = (WOW_PROJECT_ID == WOW_PROJECT_BURNING_CRUSADE_CLASSIC)
-local IsRetail = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
-local tinsert, tremove, tsort, format, strlen, strsub, gsub, floor, sin, cos, asin, acos, random, select, pairs, ipairs, unpack, bitband = table.insert, table.remove, table.sort, string.format, string.len, string.sub, string.gsub, math.floor, math.sin, math.cos, math.asin, math.acos, math.random, select, pairs, ipairs, unpack, bit.band
+local tinsert, tremove, tsort, format, strlen, strsub, gsub, floor, sin, cos, asin, acos, random, select, pairs, ipairs, unpack, bitband, bitbor = table.insert, table.remove, table.sort, string.format, string.len, string.sub, string.gsub, math.floor, math.sin, math.cos, math.asin, math.acos, math.random, select, pairs, ipairs, unpack, bit.band, bit.bor
 local InCombatLockdown = InCombatLockdown
-local AbbreviateNumbers = AbbreviateNumbers
+-- local AbbreviateNumbers = AbbreviateNumbers
 local GetSpellInfo = GetSpellInfo
 local GetTime = GetTime
+local function AbbreviateNumbers(value)
+    local suffixes = {"", "K", "M", "B", "T"}
+    local index = 1
+    while value >= 1000 and index < #suffixes do
+        value = value / 1000
+        index = index + 1
+    end
+    return string.format("%.1f%s", value, suffixes[index])
+end
 
 CFCT.frame = CreateFrame("Frame", "ClassicFCT.frame", UIParent)
 CFCT.Animating = {}
@@ -66,23 +72,45 @@ local function FormatThousandSeparator(v)
 end
 
 local function InitFont(self, state)
+    print("InitFont called with state:", state)
+
     local fontOptions = state.fontOptions
+
+    -- Check if font options are valid
+    if not (fontOptions and fontOptions.fontPath and fontOptions.fontSize) then
+        print("Error: Font options not set properly.")
+        return self
+    end
+
+    print("Setting font with path:", fontOptions.fontPath, "size:", fontOptions.fontSize, "style:", fontOptions.fontStyle)
     self:SetFont(fontOptions.fontPath, fontOptions.fontSize, fontOptions.fontStyle)
-    self:SetShadowOffset(fontOptions.fontSize/14, fontOptions.fontSize/14)
+    self:SetShadowOffset(fontOptions.fontSize / 14, fontOptions.fontSize / 14)
     self:SetDrawLayer("OVERLAY")
     self:SetJustifyH("CENTER")
     self:SetJustifyV("MIDDLE")
-    -- self:SetPoint("BOTTOM", 0, 0)
-    self:SetText(state.text)
+
+    -- Ensure SetText is called after font is set
+    if state.text then
+        print("Setting text:", state.text)
+        self:SetText(state.text)
+    else
+        print("No text to set")
+    end
+
+    print("Setting text color:", fontOptions.fontColor)
     self:SetTextColor(unpack(fontOptions.fontColor))
     self:SetAlpha(fontOptions.fontAlpha)
-    self:SetShadowColor(0,0,0,fontOptions.fontAlpha/2)
+    self:SetShadowColor(0, 0, 0, fontOptions.fontAlpha / 2)
+
     state.initialTime = now
     state.strHeight = self:GetStringHeight()
     state.strWidth = self:GetStringWidth()
     state.posX = 0
     state.posY = 0
     state.direction = 0
+
+    print("Font initialization complete. String height:", state.strHeight, "String width:", state.strWidth)
+
     self.state = state
     self:Hide()
     return self
@@ -586,11 +614,12 @@ end
 
 
 
-
-
-
 local function GrabFontString()
-    if (#fsc > 0) then return tremove(fsc) end
+    if (#fsc > 0) then 
+        print("Reusing a font string from the cache.")
+        return tremove(fsc) 
+    end
+    print("Creating a new font string.")
     local frame = f:CreateFontString()
 
     frame.Init = InitFont
@@ -603,6 +632,7 @@ local function GrabFontString()
 
     return frame
 end
+
 
 local iconCache = {}
 local function SpellIconText(spell) -- spellid or spellname
@@ -635,15 +665,17 @@ end
 
 
 local function DispatchText(guid, event, text, amount, spellid, spellicon, periodic, crit, miss, pet, school, count)
+    print("DispatchText called with:")
+    print("guid:", guid, "event:", event, "text:", text, "amount:", amount, "spellid:", spellid, "spellicon:", spellicon, "periodic:", periodic, "crit:", crit, "miss:", miss, "pet:", pet, "school:", school, "count:", count)
+
     local cat = (pet and "pet" or "")..event..(periodic and "tick" or "")..(crit and "crit" or miss and "miss" or "")
     local fctConfig = CFCT.Config
     local catConfig = fctConfig[cat]
     text = text or tostring(amount)
-    -- TODO put fctConfig and catConfig into state
-
     count = count or 1
-    if (not miss) then
-        if (not crit) then
+
+    if not miss then
+        if not crit then
             AddToAverage(amount / count)
         end
         if (fctConfig.filterAbsoluteEnabled and (fctConfig.filterAbsoluteThreshold > amount))
@@ -652,9 +684,9 @@ local function DispatchText(guid, event, text, amount, spellid, spellicon, perio
             return false
         end
 
-        if (fctConfig.abbreviateNumbers) then
+        if fctConfig.abbreviateNumbers then
             text = AbbreviateNumbers(amount)
-        elseif (fctConfig.kiloSeparator) then
+        elseif fctConfig.kiloSeparator then
             text = FormatThousandSeparator(amount)
         end
     end
@@ -663,9 +695,10 @@ local function DispatchText(guid, event, text, amount, spellid, spellicon, perio
         text = text.." x"..tostring(count)
     end
 
-    if (spellicon and catConfig.showIcons) then text = spellicon..text end
+    if spellicon and catConfig.showIcons then
+        text = spellicon..text
+    end
 
-    
     local fontColor, fontAlpha
     local typeColor = periodic and fctConfig.colorTableDotEnabled and GetDotTypeColor(school) or GetDamageTypeColor(school)
     if (catConfig.colorByType == true) and typeColor then
@@ -679,6 +712,7 @@ local function DispatchText(guid, event, text, amount, spellid, spellicon, perio
         fontAlpha = a
     end
 
+    print("Calling GrabFontString with text:", text)
     tinsert(anim, 1, GrabFontString():Init({
         cat = cat,
         guid = guid,
@@ -728,7 +762,7 @@ local function CacheEvent(guid, event, amount, text, spellid, spellicon, periodi
     for _, e in ipairs(mergeConfig) do
         if e[1] == true then id = id .. tostring(e[2]) end
     end
-    -- print(id)
+    print("Cache Event ID:", id) -- Debug print
     local mergeTime = fctConfig.mergeEventsIntervalOverrides[spellid] or fctConfig.mergeEventsInterval
     local now = GetTime()
     local record = eventCache[id] or {
@@ -751,7 +785,9 @@ local function CacheEvent(guid, event, amount, text, spellid, spellicon, periodi
         count = 1
     })
     if fctConfig.mergeEventsIntervalMode == "first" then
-        record.expiry = record.expiry or (now + mergeTime)
+        if not record.expiry then
+            record.expiry = now + mergeTime
+        end
     elseif fctConfig.mergeEventsIntervalMode == "last" then
         record.expiry = now + mergeTime
     end
@@ -762,15 +798,18 @@ local function ProcessCachedEvents()
     local mergingEnabled = CFCT.Config.mergeEvents
     local separateMisses = CFCT.Config.mergeEventsMisses
 
-    for id,record in pairs(eventCache) do
+    for id, record in pairs(eventCache) do
         if mergingEnabled then
             if (now > record.expiry) then
                 local merge
-                for _,e in ipairs(record.events) do
+                for i = #record.events, 1, -1 do
+                    local e = record.events[i]
                     if e.miss and separateMisses then
                         DispatchText(e.guid, e.event, e.text, e.amount, e.spellid, e.spellicon, e.periodic, e.crit, e.miss, e.pet, e.school)
+                        tremove(record.events, i)
                     elseif not merge then
                         merge = e
+                        tremove(record.events, i)
                     else
                         merge.amount = merge.amount + e.amount
                         merge.text = merge.text or e.text
@@ -778,6 +817,7 @@ local function ProcessCachedEvents()
                         merge.miss = merge.miss == false and false or e.miss
                         merge.crit = merge.crit or e.crit
                         merge.periodic = merge.periodic and e.periodic
+                        tremove(record.events, i)
                     end
                 end
                 if merge then
@@ -787,14 +827,47 @@ local function ProcessCachedEvents()
                 eventCache[id] = nil
             end
         else
-            for _,e in ipairs(record.events) do
+            for i = #record.events, 1, -1 do
+                local e = record.events[i]
                 local text = (e.amount ~= 0) and e.amount or e.text
-                DispatchText(e.guid, e.event, e.text, e.amount, e.spellid, e.spellicon, e.periodic, e.crit, e.miss, e.pet, e.school)
+                DispatchText(e.guid, e.event, text, e.amount, e.spellid, e.spellicon, e.periodic, e.crit, e.miss, e.pet, e.school)
+                tremove(record.events, i)
             end
             eventCache[id] = nil
         end
     end
 end
+
+f:SetScript("OnUpdate", function(self, elapsed)
+    now = GetTime() -- Ensure 'now' is updated correctly
+    if CFCT._testMode and (now > testModeTimer) and not InCombatLockdown() then
+        CFCT:Test(2)
+        testModeTimer = now + CFCT.Config.animDuration / 2
+    end
+    if (now > rollingAverageTimer) then
+        CalculateRollingAverage()
+        rollingAverageTimer = now + ROLLINGAVERAGE_UPDATE_INTERVAL
+    end
+    ProcessCachedEvents()
+    PrepareAnimatingFonts()
+    UpdateAnimatingFonts()
+end)
+
+f:SetScript("OnUpdate", function(self, elapsed)
+    now = GetTime() -- Ensure 'now' is updated correctly
+    if CFCT._testMode and (now > testModeTimer) and not InCombatLockdown() then
+        CFCT:Test(2)
+        testModeTimer = now + CFCT.Config.animDuration / 2
+    end
+    if (now > rollingAverageTimer) then
+        CalculateRollingAverage()
+        rollingAverageTimer = now + ROLLINGAVERAGE_UPDATE_INTERVAL
+    end
+    ProcessCachedEvents()
+    PrepareAnimatingFonts()
+    UpdateAnimatingFonts()
+end)
+
 
 
 -- CFCT.TestFrames = {}
@@ -806,8 +879,8 @@ function CFCT:Test(n)
         "spell",
         "heal"
     }
-    local nameplates = C_NamePlate.GetNamePlates()
-    local numplates = #nameplates
+
+    local numplates = 0
     local it = (numplates > 0) and (n*numplates) or n
     for i = 1, it do
         local spellid
@@ -823,9 +896,6 @@ function CFCT:Test(n)
         local text = miss and "Miss" or nil
         local periodic = (random(1,3) == 1) and event == "spell"
         local amount = crit and 2674 or miss and 0 or 1337
-        if crit and miss then
-            print(amount, crit, miss)
-        end
         local guid = (numplates > 0) and UnitGUID(nameplates[random(1,numplates)].UnitFrame.unit) or UnitGUID("target")
         local spellicon = spellid and SpellIconText(spellid) or ""
         DispatchText(guid, event, text, amount, spellid, spellicon, periodic, crit, miss, pet, school)
@@ -837,31 +907,29 @@ end
 local CVAR_CHECK_INTERVAL = 5
 local cvarTimer = 0
 local function checkCvars()
-    if (GetCVarDefault("floatingCombatTextCombatDamage")) then
+    if (GetCVarDefault("enableCombatText")) then
         local varHideDamage = CFCT.hideBlizz and "0" or "1"
-        local cvarHideDamage = GetCVar("floatingCombatTextCombatDamage")
+        local cvarHideDamage = GetCVar("CombatDamage")
         if not (cvarHideDamage == varHideDamage) then
             if CFCT.forceCVars then
-                SetCVar("floatingCombatTextCombatDamage", varHideDamage)
+                SetCVar("CombatDamage", varHideDamage)
             else
                 CFCT.hideBlizz = (cvarHideDamage == "0")
             end
         end
     end
-    if (GetCVarDefault("floatingCombatTextCombatHealing")) then
+    if (GetCVarDefault("enableCombatText")) then
         local varHideHealing = CFCT.hideBlizzHeals and "0" or "1"
-        local cvarHideHealing = GetCVar("floatingCombatTextCombatHealing")
+        local cvarHideHealing = GetCVar("CombatHealing")
         if not (cvarHideHealing == varHideHealing) then
             if CFCT.forceCVars then
-                SetCVar("floatingCombatTextCombatHealing", varHideHealing)
+                SetCVar("CombatHealing", varHideHealing)
             else
                 CFCT.hideBlizzHeals = (cvarHideHealing == "0")
             end
         end
     end
 end
-
-
 
 local events = {
     COMBAT_LOG_EVENT_UNFILTERED = true,
@@ -994,13 +1062,6 @@ function CFCT:UnitHealthMax(unit)
     return unitHealthMax[unit] or UnitHealthMax(unit)
 end
 
-
-
-
-
-
-
-
 local CLEU_SWING_EVENT = {
     SWING_DAMAGE = true,
     SWING_HEAL = true,
@@ -1043,7 +1104,6 @@ local CLEU_HEALING_EVENT = {
     SPELL_PERIODIC_HEAL = true,
 }
 
-
 -- local MISS_EVENT_STRINGS = {
 --     ["ABSORB"] = "Absorbed",
 --     ["BLOCK"] = "Blocked",
@@ -1057,48 +1117,124 @@ local CLEU_HEALING_EVENT = {
 --     ["RESIST"] = "Resisted",
 -- }
 
-function f:COMBAT_LOG_EVENT_UNFILTERED()
-    if CFCT.enabled == false then return end
-    local timestamp, cleuEvent, hideCaster, sourceGUID, sourceName, sourceFlags, sourceRaidFlags, destGUID, destName, destFlags, destRaidFlags, arg12, arg13, arg14, arg15, arg16, arg17, arg18, arg19, arg20, arg21, arg22, arg23, arg24, arg25 = CombatLogGetCurrentEventInfo()
+-- Bit flags.
+local AFFILIATION_MINE		= 0x00000001
+local AFFILIATION_PARTY		= 0X00000002
+local AFFILIATION_RAID		= 0X00000004
+local AFFILIATION_OUTSIDER	= 0X00000008
+local REACTION_FRIENDLY		= 0x00000010
+local REACTION_NEUTRAL		= 0x00000020
+local REACTION_HOSTILE		= 0x00000040
+local CONTROL_HUMAN			= 0x00000100
+local CONTROL_SERVER		= 0x00000200
+local UNITTYPE_PLAYER		= 0x00000400
+local UNITTYPE_NPC			= 0x00000800
+local UNITTYPE_PET			= 0x00001000
+local UNITTYPE_GUARDIAN		= 0x00002000
+local UNITTYPE_OBJECT		= 0x00004000
+local TARGET_TARGET			= 0x00010000
+local TARGET_FOCUS			= 0x00020000
+local OBJECT_NONE			= 0x80000000
+
+-- Value when there is no GUID.
+local GUID_NONE				= "0x0000000000000000"
+
+-- ****************************************************************************
+-- Tests if all of the passed testFlags are set in the unit flags.
+-- ****************************************************************************
+local function TestFlagsAll(unitFlags, testFlags)
+    if (bitband(unitFlags, testFlags) == testFlags) then return true end
+end
+
+-- Commonly used flag combinations.
+local FLAGS_ME			= bitbor(AFFILIATION_MINE, REACTION_FRIENDLY, CONTROL_HUMAN, UNITTYPE_PLAYER)
+local FLAGS_MINE		= bitbor(AFFILIATION_MINE, REACTION_FRIENDLY, CONTROL_HUMAN)
+local FLAGS_MY_GUARDIAN	= bitbor(AFFILIATION_MINE, REACTION_FRIENDLY, CONTROL_HUMAN, UNITTYPE_GUARDIAN)
+
+-- Commonly used flag combinations.
+local FLAGS_ME			= bitbor(AFFILIATION_MINE, REACTION_FRIENDLY, CONTROL_HUMAN, UNITTYPE_PLAYER)
+local FLAGS_MINE		= bitbor(AFFILIATION_MINE, REACTION_FRIENDLY, CONTROL_HUMAN)
+local FLAGS_MY_GUARDIAN	= bitbor(AFFILIATION_MINE, REACTION_FRIENDLY, CONTROL_HUMAN, UNITTYPE_GUARDIAN)
+
+function f:COMBAT_LOG_EVENT_UNFILTERED(timestamp, event, sourceGUID, sourceName, sourceFlags, recipientGUID, recipientName, recipientFlags, ...)
+    if not CFCT.enabled then return end
+
+    -- Function to print all arguments
+    local function printArgs(...)
+        local args = {...}
+        for i, v in ipairs(args) do
+            print("arg" .. i .. ":", v)
+        end
+    end
+
     local playerEvent, petEvent = (playerGUID == sourceGUID), false
-    if not playerEvent then petEvent = (bitband(sourceFlags, COMBATLOG_OBJECT_TYPE_GUARDIAN) > 0 or bitband(sourceFlags, COMBATLOG_OBJECT_TYPE_PET) > 0) and (bitband(sourceFlags, COMBATLOG_OBJECT_AFFILIATION_MINE) > 0) end
-    if not (playerEvent or petEvent) then return end
-    if (destGUID == playerGUID) then return end
-    -- local unit = nameplates[destGUID]
-    local guid = destGUID
-    if CLEU_DAMAGE_EVENT[cleuEvent] then
-        if CLEU_SWING_EVENT[cleuEvent] then
-            local amount,overkill,school,resist,block,absorb,crit,glancing,crushing,offhand = arg12,arg13,arg14,arg15,arg16,arg17,arg18,arg19,arg20,arg21
-            self:DamageEvent(guid, nil, amount, nil, crit, petEvent, school)
-        else --its a SPELL event
-            local periodic = cleuEvent:find("SPELL_PERIODIC", 1, true)
-            local spellid,spellname,school1,amount,overkill,school2,resist,block,absorb,crit,glancing,crushing,offhand = arg12,arg13,arg14,arg15,arg16,arg17,arg18,arg19,arg20,arg21,arg22,arg23,arg24
-            if (spellid == 0 and IsClassic) then spellid = spellname end
-            self:DamageEvent(guid, spellid, amount, periodic, crit, petEvent, school1)
+    if not playerEvent then 
+        petEvent = (bit.band(sourceFlags, UNITTYPE_GUARDIAN) > 0 or bit.band(sourceFlags, UNITTYPE_PET) > 0) 
+                   and (bit.band(sourceFlags, UNITTYPE_OBJECT) > 0) 
+    end
+    if not (playerEvent or petEvent) or recipientGUID == playerGUID then return end
+
+    -- Print all arguments for the event
+    -- print("Event:", event)
+    -- print("Timestamp:", timestamp)
+    -- print("SourceGUID:", sourceGUID)
+    -- print("SourceName:", sourceName)
+    -- print("SourceFlags:", sourceFlags)
+    -- print("RecipientGUID:", recipientGUID)
+    -- print("RecipientName:", recipientName)
+    -- print("RecipientFlags:", recipientFlags)
+    -- printArgs(...)
+
+    local guid = recipientGUID
+    if CLEU_DAMAGE_EVENT[event] then
+        if CLEU_SWING_EVENT[event] then
+            local amount, overkill, school, resist, block, absorb, crit, glancing, crushing, offhand = ...
+            -- print("CLEU_SWING_EVENT detected")
+            -- print("amount:", amount, "overkill:", overkill, "school:", school, "resist:", resist, "block:", block, "absorb:", absorb, "crit:", crit, "glancing:", glancing, "crushing:", crushing, "offhand:", offhand)
+            if amount then
+                self:DamageEvent(guid, nil, amount, nil, crit, petEvent, school)
+            end
+        else
+            local periodic = event:find("SPELL_PERIODIC", 1, true)
+            local spellid, spellname, school, amount, overkill, school2, resist, block, absorb, crit, glancing, crushing, offhand = ...
+            -- print("SPELL event detected")
+            -- print("spellid:", spellid, "spellname:", spellname, "school:", school, "amount:", amount, "overkill:", overkill, "school2:", school2, "resist:", resist, "block:", block, "absorb:", absorb, "crit:", crit, "glancing:", glancing, "crushing:", crushing, "offhand:", offhand)
+            if amount then
+                self:DamageEvent(guid, spellid, amount, periodic, crit, petEvent, school)
+            end
         end
-    elseif CLEU_MISS_EVENT[cleuEvent] then
-        if CLEU_SWING_EVENT[cleuEvent] then
-            local misstype,_,amount = arg12,arg13,arg14
-            self:MissEvent(guid, nil, amount, nil, misstype, petEvent, SCHOOL_MASK_PHYSICAL)
-        else --its a SPELL event
-            local periodic = cleuEvent:find("SPELL_PERIODIC", 1, true)
-            local spellid,spellname,school1,misstype,_,amount = arg12,arg13,arg14,arg15,arg16,arg17
-            if (spellid == 0 and IsClassic) then spellid = spellname end
-            self:MissEvent(guid, spellid, amount, periodic, misstype, petEvent, school1)
+    elseif CLEU_MISS_EVENT[event] then
+        if CLEU_SWING_EVENT[event] then
+            local misstype, _, amount = ...
+            -- print("CLEU_MISS_EVENT detected")
+            -- print("misstype:", misstype, "amount:", amount)
+            self:MissEvent(guid, nil, amount, nil, misstype, petEvent, 1)
+        else
+            local periodic = event:find("SPELL_PERIODIC", 1, true)
+            local spellid, spellname, school, misstype, _, amount = ...
+            -- print("SPELL event detected")
+            -- print("spellid:", spellid, "spellname:", spellname, "school:", school, "misstype:", misstype, "amount:", amount)
+            self:MissEvent(guid, spellid, amount, periodic, misstype, petEvent, school)
         end
-    elseif CLEU_HEALING_EVENT[cleuEvent] then
-        if CLEU_SWING_EVENT[cleuEvent] then
-            local amount,overheal,absorb,crit = arg12,arg13,arg14,arg15
-            self:HealingEvent(guid, nil, amount, nil, crit, petEvent, nil)
-        else --its a SPELL event
-            local periodic = cleuEvent:find("SPELL_PERIODIC", 1, true)
-            local spellid,spellname,school1,amount,overheal,absorb,crit = arg12,arg13,arg14,arg15,arg16,arg17,arg18
-            if (spellid == 0 and IsClassic) then spellid = spellname end
-            self:HealingEvent(guid, spellid, amount, periodic, crit, petEvent, school1)
+    elseif CLEU_HEALING_EVENT[event] then
+        if CLEU_SWING_EVENT[event] then
+            local amount, overheal, absorb, crit = ...
+            -- print("CLEU_HEALING_EVENT detected")
+            -- print("amount:", amount, "overheal:", overheal, "absorb:", absorb, "crit:", crit)
+            if amount then
+                self:HealingEvent(guid, nil, amount, nil, crit, petEvent, nil)
+            end
+        else
+            local periodic = event:find("SPELL_PERIODIC", 1, true)
+            local spellid, spellname, school, amount, overheal, absorb, crit = ...
+            -- print("SPELL event detected")
+            -- print("spellid:", spellid, "spellname:", spellname, "school:", school, "amount:", amount, "overheal:", overheal, "absorb:", absorb, "crit:", crit)
+            if amount then
+                self:HealingEvent(guid, spellid, amount, periodic, crit, petEvent, school)
+            end
         end
     end
 end
-
 
 
 

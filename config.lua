@@ -5,7 +5,7 @@ local IsRetail = (WOW_PROJECT_ID == WOW_PROJECT_MAINLINE)
 local IsClassic = (WOW_PROJECT_ID == WOW_PROJECT_CLASSIC)
 local IsBCC = (WOW_PROJECT_ID == WOW_PROJECT_BURNING_CRUSADE_CLASSIC)
 local DefaultPresets = CFCT:GetDefaultPresets()
-local DefaultConfig = DefaultPresets["Mists of Pandaria"]
+local DefaultConfig = DefaultPresets["Classic"]
 local DefaultVars = {
     enabled = true,
     hideBlizz = true,
@@ -30,8 +30,8 @@ local ClassSpecificTables = {
     mergeEventsIntervalOverrides = true,
     filterSpellBlacklist = true
 }
-for i=1,GetNumClasses(),1 do
-    local class = select(2, GetClassInfo(i))
+
+for i, class in ipairs(CLASS_SORT_ORDER) do
     if (class) then
         for k,v in pairs(ClassSpecificTables) do
             DefaultTables[k][class] = {}
@@ -69,68 +69,131 @@ local AnimationDefaults = {
 }
 
 local function SetValue(path, value)
+    -- print("SetValue called. Path:", path, "Value:", value)
     local chain = { strsplit(".", path) }
     local depth = #chain
     local temp = CFCT
+
     for d, k in ipairs(chain) do
+        if not temp[k] then
+            -- print("SetValue - Invalid path segment:", k)
+            return false
+        end
         if (d == depth) then
             if (type(value) == 'table') then
-                for key,val in pairs(value) do
+                -- print("SetValue - Setting table values at segment:", k)
+                for key, val in pairs(value) do
                     temp[k][key] = val
+                    print("  Set", key, "to", val)
                 end
+            else
+                -- print("SetValue - Setting value at segment:", k)
+                temp[k] = value
             end
-            temp[k] = value
+            -- print("SetValue - Successfully set value for path:", path)
             return true
         end
         temp = temp[k]
     end
+    -- print("SetValue - Failed to set value for path:", path)
     return false
 end
 
+
+
 local function GetValue(path)
+    if not path or path == "" then
+        -- print("GetValue - Invalid path:", path)
+        return nil
+    end
+
     local chain = { strsplit(".", path) }
     local depth = #chain
     local temp = CFCT
+
     for d, k in ipairs(chain) do
+        if not temp then
+            -- print("GetValue - Invalid path segment:", k)
+            return nil
+        end
         if (d == depth) then
+            if temp[k] == nil then
+                -- print("GetValue - Value not found for:", path)
+            else
+                -- print("GetValue - Found value:", temp[k])
+            end
             return temp[k]
         end
         temp = temp[k]
     end
+    -- print("GetValue - Invalid path, reached end without finding value:", path)
+    return nil
 end
 
 
 
 
-local function UpdateTable(dest, source, template, overwrite)
+
+local function UpdateTable(dest, source, template, overwrite, debug)
     assert((type(dest) == 'table'), "UpdateTable: dest is not a table")
     assert((type(source) == 'table'), "UpdateTable: source is not a table")
     assert((type(template) == 'table'), "UpdateTable: template is not a table")
-    local verbose = (CFCT.debug == true)
-    if verbose then CFCT:Log("UpdateTable("..type(dest)..", "..type(source)..", "..type(template)..", "..tostring(overwrite)) end
+
+    if debug then
+        print("UpdateTable called with parameters:")
+        print("  dest:", dest)
+        print("  source:", source)
+        print("  template:", template)
+        print("  overwrite:", overwrite)
+    end
+
     for k, t in pairs(template) do
-        if verbose then CFCT:Log("["..tostring(k).."] dest("..tostring(dest[k])..") source("..tostring(source[k])..")") end
+        if debug then
+            print("Processing key:", k)
+            print("  dest[k]:", dest[k])
+            print("  source[k]:", source[k])
+            print("  template[k]:", t)
+        end
+
         if (type(t) == 'table') then
-            if verbose then CFCT:Log("table "..tostring(k)) end
+            if debug then
+                print("  Key is a table. Recursively updating...")
+            end
             dest[k] = (type(dest[k]) == 'table') and dest[k] or {}
-            UpdateTable(dest[k], source[k], t, overwrite)
+            UpdateTable(dest[k], source[k], t, overwrite, debug)
         elseif ((type(t) ~= type(dest[k])) or (dest[k] == nil) or (overwrite and (dest[k] ~= source[k]))) then
             dest[k] = (source[k] == nil) and t or source[k]
-            if verbose then CFCT:Log("write ("..tostring(source[k])..((source[k] == nil) and "  |> " or " <|  ")..tostring(t)..")") end
+            if debug then
+                print("  Updating key:", k)
+                print("    new value:", dest[k])
+            end
         end
     end
+
+    if debug then
+        print("UpdateTable finished for this level.")
+    end
 end
-local function AttachTables(dest, source, template)
+
+local function AttachTables(dest, source, template, debug)
     local class = UnitClassBase('player')
+    if debug then
+        print("Class is:", class)
+    end
+
     for k, t in pairs(template) do
-        if (ClassSpecificTables[k] == true) then
+        if ClassSpecificTables and (ClassSpecificTables[k] == true) then
             if source[k] == nil then source[k] = {} end
             if source[k][class] == nil then source[k][class] = {} end
-            -- print("AttachTable", k, dest[k], class, source[k][class])
+            if debug then
+                print("AttachTable", k, dest[k], class, source[k][class])
+            end
             dest[k] = source[k][class]
         else
             if source[k] == nil then source[k] = {} end
-            -- print("AttachTable", k, dest[k], source[k])
+            if debug then
+                print("AttachTable", k, dest[k], source[k])
+            end
             dest[k] = source[k]
         end
     end
@@ -220,18 +283,17 @@ CFCT.Config = {
         end
     end,
     OnSave = function(self)
+        print("On save called")
         ClassicFCTCustomPresets = {}
         UpdateTable(ClassicFCTCustomPresets, CFCT.Presets, CFCT.Presets, true)
         ClassicFCTVars.lastVersion = CFCT.lastVersion
         if (not CFCT.characterSpecificConfig) then
-            -- print("Saving Global")
             UpdateTable(CFCT, ClassicFCTVars, DefaultVars)
             UpdateTable(ClassicFCTVars, CFCT, DefaultVars, true)
 
             UpdateTable(self, ClassicFCTConfig, DefaultConfig)
             UpdateTable(ClassicFCTConfig, self, DefaultConfig, true)
         else
-            -- print("Saving Character")
             UpdateTable(CFCT, ClassicFCTCharVars, DefaultCharVars)
             UpdateTable(ClassicFCTCharVars, CFCT, DefaultCharVars, true)
 
@@ -354,7 +416,7 @@ local function WidgetConfigBridgeGet(self, default, ConfigPathOrFunc)
         return ConfigPathOrFunc(self, "Get", default)
     else
         local ret = GetValue(ConfigPathOrFunc)
-        -- print("WidgetConfigBridgeGet", ConfigPathOrFunc, default, ret, (ret == nil) and default or ret)
+        --print("WidgetConfigBridgeGet", ConfigPathOrFunc, default, ret, (ret == nil) and default or ret)
         return (ret == nil) and default or ret -- value == default
     end
 end
@@ -363,6 +425,8 @@ local function WidgetConfigBridgeSet(self, value, ConfigPathOrFunc)
     if (type(ConfigPathOrFunc) == 'function') then
         ConfigPathOrFunc(self, "Set", value)
     else
+        local path = ConfigPathOrFunc
+        print("Setting value in path:", path)
         SetValue(ConfigPathOrFunc, value)
     end
 end
@@ -492,43 +556,42 @@ local FontStylesMenu = {
 
 local SCHOOL_NAMES = {
     -- Single Schools
-    [Enum.Damageclass.MaskPhysical]	    = STRING_SCHOOL_PHYSICAL,
-    [Enum.Damageclass.MaskHoly]		    = STRING_SCHOOL_HOLY,
-    [Enum.Damageclass.MaskFire]		    = STRING_SCHOOL_FIRE,
-    [Enum.Damageclass.MaskNature]	    = STRING_SCHOOL_NATURE,
-    [Enum.Damageclass.MaskFrost]	    = STRING_SCHOOL_FROST,
-    [Enum.Damageclass.MaskShadow]	    = STRING_SCHOOL_SHADOW,
-    [Enum.Damageclass.MaskArcane]	    = STRING_SCHOOL_ARCANE,
+    [1] = STRING_SCHOOL_PHYSICAL,
+    [2] = STRING_SCHOOL_HOLY,
+    [4] = STRING_SCHOOL_FIRE,
+    [8] = STRING_SCHOOL_NATURE,
+    [16] = STRING_SCHOOL_FROST,
+    [32] = STRING_SCHOOL_SHADOW,
+    [64] = STRING_SCHOOL_ARCANE,
     -- Physical and a Magical
-    [Enum.Damageclass.MaskFlamestrike]	= STRING_SCHOOL_FLAMESTRIKE,
-    [Enum.Damageclass.MaskFroststrike]	= STRING_SCHOOL_FROSTSTRIKE,
-    [Enum.Damageclass.MaskSpellstrike]	= STRING_SCHOOL_SPELLSTRIKE,
-    [Enum.Damageclass.MaskStormstrike]	= STRING_SCHOOL_STORMSTRIKE,
-    [Enum.Damageclass.MaskShadowstrike]	= STRING_SCHOOL_SHADOWSTRIKE,
-    [Enum.Damageclass.MaskHolystrike]	= STRING_SCHOOL_HOLYSTRIKE,
+    [3] = STRING_SCHOOL_HOLYSTRIKE,
+    [5] = STRING_SCHOOL_FLAMESTRIKE,
+    [9] = STRING_SCHOOL_STORMSTRIKE,
+    [17] = STRING_SCHOOL_FROSTSTRIKE,
+    [33] = STRING_SCHOOL_SHADOWSTRIKE,
+    [65] = STRING_SCHOOL_SPELLSTRIKE,
     -- Two Magical Schools
-    [Enum.Damageclass.MaskFrostfire]	= STRING_SCHOOL_FROSTFIRE,
-    [Enum.Damageclass.MaskSpellfire]	= STRING_SCHOOL_SPELLFIRE,
-    [Enum.Damageclass.MaskFirestorm]	= STRING_SCHOOL_FIRESTORM,
-    [Enum.Damageclass.MaskShadowflame]	= STRING_SCHOOL_SHADOWFLAME,
-    [Enum.Damageclass.MaskHolyfire]		= STRING_SCHOOL_HOLYFIRE,
-    [Enum.Damageclass.MaskSpellfrost]	= STRING_SCHOOL_SPELLFROST,
-    [Enum.Damageclass.MaskFroststorm]	= STRING_SCHOOL_FROSTSTORM,
-    [Enum.Damageclass.MaskShadowfrost]	= STRING_SCHOOL_SHADOWFROST,
-    [Enum.Damageclass.MaskHolyfrost]	= STRING_SCHOOL_HOLYFROST,
-    [Enum.Damageclass.MaskSpellstorm]	= STRING_SCHOOL_SPELLSTORM,
-    [Enum.Damageclass.MaskSpellshadow]	= STRING_SCHOOL_SPELLSHADOW,
-    [Enum.Damageclass.MaskDivine]		= STRING_SCHOOL_DIVINE,
-    [Enum.Damageclass.MaskShadowstorm]	= STRING_SCHOOL_SHADOWSTORM,
-    [Enum.Damageclass.MaskHolystorm]	= STRING_SCHOOL_HOLYSTORM,
-    [Enum.Damageclass.MaskTwilight]	    = STRING_SCHOOL_SHADOWLIGHT,
+    [6] = STRING_SCHOOL_HOLYFIRE,
+    [10] = STRING_SCHOOL_HOLYSTORM,
+    [12] = STRING_SCHOOL_FIRESTORM,
+    [18] = STRING_SCHOOL_HOLYFROST,
+    [20] = STRING_SCHOOL_FROSTFIRE,
+    [24] = STRING_SCHOOL_FROSTSTORM,
+    [34] = STRING_SCHOOL_SHADOWHOLY,
+    [36] = STRING_SCHOOL_SHADOWFLAME,
+    [40] = STRING_SCHOOL_SHADOWSTORM,
+    [48] = STRING_SCHOOL_SHADOWFROST,
+    [66] = STRING_SCHOOL_DIVINE,
+    [68] = STRING_SCHOOL_SPELLFIRE,
+    [72] = STRING_SCHOOL_SPELLSTORM,
+    [80] = STRING_SCHOOL_SPELLFROST,
+    [96] = STRING_SCHOOL_SPELLSHADOW,
     -- Three or more schools
-    [Enum.Damageclass.MaskElemental]	= STRING_SCHOOL_ELEMENTAL,
-    [Enum.Damageclass.MaskChromatic]    = STRING_SCHOOL_CHROMATIC,
-    [Enum.Damageclass.MaskMagical]      = STRING_SCHOOL_MAGIC,
-    [Enum.Damageclass.MaskChaos]        = STRING_SCHOOL_CHAOS
+    [28] = STRING_SCHOOL_ELEMENTAL,
+    [124] = STRING_SCHOOL_CHROMATIC,
+    [126] = STRING_SCHOOL_MAGIC,
+    [127] = STRING_SCHOOL_CHAOS
 }
-
 
 
 
@@ -562,9 +625,9 @@ local function CreateCheckbox(self, label, tooltip, parent, point1, point2, x, y
     end)
     checkbox:SetScript("OnClick", function(self)
         local checked = self:GetChecked()
-        PlaySound(checked and SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_ON or SOUNDKIT.IG_MAINMENU_OPTION_CHECKBOX_OFF)
         WidgetConfigBridgeSet(self, checked, ConfigPathOrFunc)
     end)
+    
     checkbox.label = getglobal(checkbox:GetName() .. 'Text')
     checkbox.label:SetText(label)
     checkbox.tooltipText = tooltip
@@ -588,56 +651,61 @@ local function CreateSlider(self, label, tooltip, parent, point1, point2, x, y, 
     slider:SetPoint(point1, parent, point2, x, y)
     slider:SetWidth(270)
     slider.tooltipText = tooltip
-	slider.tooltipRequirement = "Default: " .. (defVal or "") 
+    slider.tooltipRequirement = "Default: " .. (defVal or "") 
     getglobal(slider:GetName() .. 'Low'):SetText(tostring(minVal))
     getglobal(slider:GetName() .. 'High'):SetText(tostring(maxVal))
     getglobal(slider:GetName() .. 'Text'):SetText(label)
     slider:SetMinMaxValues(minVal, maxVal)
     slider:SetValueStep(step)
-    slider:SetObeyStepOnDrag(true)
+    -- not a valid function in the Wrath core
+    -- slider:SetObeyStepOnDrag(true)
 
+    -- It seems like sliders in Ascension have values displayed underneath them automatically, so the value box just shows as a doubled value
+    -- These look ugly and I have noticed that not many addons use them, so I've disabled everything related to the valuebox in this addon
+    -- It could all be re-enabled by uncommenting the code below and anything having to do with 'valuebox' in here
     slider:SetScript("OnShow", function(self)
         self:SetValue(WidgetConfigBridgeGet(self, defVal, ConfigPathOrFunc))
     end)
     slider:HookScript("OnValueChanged", function(self, val, isUserInput)
-        slider.valueBox:SetText(val)
+        -- slider.valueBox:SetText(val)
         WidgetConfigBridgeSet(self, val, ConfigPathOrFunc)
     end)
 
-    local valueBox = CreateFrame('editbox', nil, slider, BackdropTemplateMixin and "BackdropTemplate")
-	valueBox:SetPoint('TOP', slider, 'BOTTOM', 0, 0)
-	valueBox:SetSize(60, 14)
-	valueBox:SetFontObject(GameFontHighlightSmall)
-	valueBox:SetAutoFocus(false)
-	valueBox:SetJustifyH('CENTER')
-	valueBox:SetScript('OnEscapePressed', function(self)
-		self:SetText(slider:GetValue() or defVal)
-		self:ClearFocus()
-	end)
-	valueBox:SetScript('OnEnterPressed', function(self)
-        local value = ValidateValue(tonumber(self:GetText()) or slider:GetValue() or defVal, minVal, maxVal, step)
-        slider:SetValue(value)
-		self:SetText(value)
-		self:ClearFocus()
-	end)
-	slider:HookScript('OnValueChanged', function(self, rawVal)
-		local value = ValidateValue(rawVal, minVal, maxVal, step)
-		valueBox:SetText(value)
-	end)
-	valueBox:SetScript('OnChar', function(self)
-		self:SetText(self:GetText():gsub('[^%.0-9]+', ''):gsub('(%..*)%.', '%1'))
-	end)
-	valueBox:SetMaxLetters(5)
+    -- local valueBox = CreateFrame('editbox', nil, slider, BackdropTemplateMixin and "BackdropTemplate")
+	-- valueBox:SetPoint('TOP', slider, 'BOTTOM', 0, 0)
+	-- valueBox:SetSize(60, 14)
+	-- valueBox:SetFontObject(GameFontHighlightSmall)
+	-- valueBox:SetAutoFocus(false)
+	-- valueBox:SetJustifyH('CENTER')
+	-- valueBox:SetScript('OnEscapePressed', function(self)
+	-- 	self:SetText(slider:GetValue() or defVal)
+	-- 	self:ClearFocus()
+	-- end)
+	-- valueBox:SetScript('OnEnterPressed', function(self)
+    --     local value = ValidateValue(tonumber(self:GetText()) or slider:GetValue() or defVal, minVal, maxVal, step)
+    --     slider:SetValue(value)
+	-- 	self:SetText(value)
+	-- 	self:ClearFocus()
+	-- end)
+	-- slider:HookScript('OnValueChanged', function(self, rawVal)
+	-- 	local value = ValidateValue(rawVal, minVal, maxVal, step)
+	-- 	valueBox:SetText(value)
+	-- end)
+	-- valueBox:SetScript('OnChar', function(self)
+	-- 	self:SetText(self:GetText():gsub('[^%.0-9]+', ''):gsub('(%..*)%.', '%1'))
+	-- end)
+	-- valueBox:SetMaxLetters(5)
 
-	valueBox:SetBackdrop({
-		bgFile = 'Interface/ChatFrame/ChatFrameBackground',
-		edgeFile = 'Interface/ChatFrame/ChatFrameBackground',
-		tile = true, edgeSize = 1, tileSize = 5,
-	})
-	valueBox:SetBackdropColor(0, 0, 0, 0.5)
-	valueBox:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
+	-- valueBox:SetBackdrop({
+	-- 	bgFile = 'Interface/ChatFrame/ChatFrameBackground',
+	-- 	edgeFile = 'Interface/ChatFrame/ChatFrameBackground',
+	-- 	tile = true, edgeSize = 1, tileSize = 5,
+	-- })
+	-- valueBox:SetBackdropColor(0, 0, 0, 0.5)
+	-- valueBox:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
 
-    slider.valueBox = valueBox
+    -- slider.valueBox = valueBox
+
     return slider
 end
 
@@ -717,14 +785,7 @@ local function CreateDropDownMenu(self, label, tooltip, parent, point1, point2, 
     dropdown.middle:SetWidth(150)
     dropdown.right = getglobal(dropdown:GetName() .. "Right")
     dropdown.curValue = menuItems[1].value
-
-    -- if (ConfigPathOrFunc and (type(ConfigPathOrFunc) == 'function')) then
-    --     dropdown.menuFunc = ConfigPathOrFunc
-    -- else
-    --     dropdown.configPath = ConfigPathOrFunc
-    -- end
-
-    -- UIDropDownMenu_SetAnchor(dropdown, 300, 0, "CENTER", UIParent, "LEFT")
+    
     local function itemOnClick(self)
         for i, item in ipairs(menuItems) do
             if (item.value == self.value) then
@@ -733,11 +794,6 @@ local function CreateDropDownMenu(self, label, tooltip, parent, point1, point2, 
             end
         end
         WidgetConfigBridgeSet(dropdown, self.value, ConfigPathOrFunc)
-        -- if (dropdown.menuFunc and (type(dropdown.menuFunc) == 'function')) then
-        --     dropdown.menuFunc(self, dropdown)
-        -- elseif (dropdown.configPath and (type(dropdown.configPath) == 'string')) then
-        --     SetValue(dropdown.configPath, dropdown.curValue)
-        -- end
         UIDropDownMenu_SetSelectedValue(dropdown, self.value)
     end
     dropdown.initialize = function(dd)
@@ -759,6 +815,7 @@ local function CreateDropDownMenu(self, label, tooltip, parent, point1, point2, 
                 getglobal(self:GetName().."Text"):SetText(item.text)
             end
         end
+        
     end)
     return dropdown
 end
@@ -1228,6 +1285,9 @@ end
 --ConfigPanel Layout
 
 local ConfigPanel = CreateConfigPanel("ClassicFCT", nil, 800)
+
+ConfigPanel:HookScript("OnShow", function(self) print("I'm shown again!") end)
+
 CFCT.ConfigPanel = ConfigPanel
 local headerGlobal = ConfigPanel:CreateHeader("", "GameFontNormalLarge", ConfigPanel, "TOPLEFT", "TOPLEFT", 16, -16)
 local charSpecificCheckbox = ConfigPanel:CreateCheckbox("Character Specific Config", "Settings are saved per character. Presets stay global.", headerGlobal, "LEFT", "LEFT", 0, -2, DefaultVars.characterSpecificConfig, function(self, e, value)
@@ -1245,15 +1305,16 @@ local enabledCheckbox = ConfigPanel:CreateCheckbox("Enable ClassicFCT", "Enables
 
 local hideBlizzDamageCheckbox = ConfigPanel:CreateCheckbox("Hide Blizzard Damage", "Enables/Disables the default Blizzard Floating Damage Text", enabledCheckbox, "LEFT", "RIGHT", 150, 0, DefaultVars.hideBlizz, "hideBlizz")
 hideBlizzDamageCheckbox:HookScript("OnClick", function(self)
-    SetCVar("floatingCombatTextCombatDamage", self:GetChecked() and "0" or "1")
+    SetCVar("CombatDamage", self:GetChecked() and "0" or "1")
 end)
-if (GetCVarDefault("floatingCombatTextCombatDamage") == nil) then hideBlizzDamageCheckbox:Hide() end
+if (GetCVarDefault("CombatDamage") == nil) then hideBlizzDamageCheckbox:Hide() end
+
 
 local hideBlizzHealingCheckbox = ConfigPanel:CreateCheckbox("Hide Blizzard Healing", "Enables/Disables the default Blizzard Floating Healing Text", hideBlizzDamageCheckbox, "LEFT", "RIGHT", 150, 0, DefaultVars.hideBlizzHeals, "hideBlizzHeals")
 hideBlizzHealingCheckbox:HookScript("OnClick", function(self)
-    SetCVar("floatingCombatTextCombatHealing", self:GetChecked() and "0" or "1")
+    SetCVar("CombatHealing", self:GetChecked() and "0" or "1")
 end)
-if (GetCVarDefault("floatingCombatTextCombatHealing") == nil) then hideBlizzDamageCheckbox:Hide() end
+if (GetCVarDefault("CombatHealing") == nil) then hideBlizzDamageCheckbox:Hide() end
 
 local headerPresets = ConfigPanel:CreateHeader("Config Presets", "GameFontNormalLarge", headerGlobal, "TOPLEFT", "BOTTOMLEFT", 0, -46)
 local newPresetBtn = ConfigPanel:CreateButton("New", "Creates a new preset", headerPresets, "TOPLEFT", "TOPRIGHT", 94, 0, function()
@@ -1445,6 +1506,7 @@ filteringBlacklistDropdown:HookScript("OnShow", function(self)
             end
         end
     end
+
     if (self.curValue == nil) then 
         for k,v in pairs(spellIdTable) do
             self.curValue = k
@@ -1457,6 +1519,7 @@ filteringBlacklistDropdown:HookScript("OnShow", function(self)
             break
         end
     end
+
     local dropDownText
     for k,v in pairs(FilteringBlacklistMenu) do
         if (v.value == self.curValue) then
@@ -1464,12 +1527,11 @@ filteringBlacklistDropdown:HookScript("OnShow", function(self)
             break
         end
     end
-    -- print(self.curValue, dropDownText)
     if (dropDownText) then
-        self.Button:Enable()
+        -- self.Button:Enable()
         filteringBlacklistCheckbox:Enable()
     else
-        self.Button:Disable()
+        -- self.Button:Disable()
         filteringBlacklistCheckbox:Disable()
     end
     getglobal(self:GetName().."Text"):SetText(dropDownText or "Empty: Attack a Dummy")
@@ -1589,15 +1651,14 @@ mergingIntervalOverrideDropdown:HookScript("OnShow", function(self)
             break
         end
     end
-    -- print(self.curValue, dropDownText)
     if (dropDownText) then
-        self.Button:Enable()
+        -- self.Button:Enable()
         mergingOverrideIntervalSlider:Enable()
-        mergingOverrideIntervalSlider.valueBox:Enable()
+        -- mergingOverrideIntervalSlider.valueBox:Enable()
     else
-        self.Button:Disable()
+        -- self.Button:Disable()
         mergingOverrideIntervalSlider:Disable()
-        mergingOverrideIntervalSlider.valueBox:Disable()
+        -- mergingOverrideIntervalSlider.valueBox:Disable()
         mergingOverrideIntervalResetButton:Disable()
     end
     getglobal(self:GetName().."Text"):SetText(dropDownText or "Empty: Attack a Dummy")
@@ -1801,8 +1862,9 @@ local CONFIG_LAYOUT = {
     }
 }
 
-ConfigPanel:HookScript("OnShow", function(self) CFCT._testMode = true end)
-ConfigPanel:HookScript("OnHide", function(self) CFCT._testMode = false end)
+-- ConfigPanel:HookScript("OnShow", function(self) CFCT._testMode = true end)
+-- ConfigPanel:HookScript("OnHide", function(self) CFCT._testMode = false end)
+
 for _, cat in ipairs(CONFIG_LAYOUT) do
     local subpanel = ConfigPanel:CreateSubPanel(cat.catname)
     subpanel:HookScript("OnShow", function(self) CFCT._testMode = true end)
